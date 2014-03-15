@@ -1,0 +1,50 @@
+{
+  "name": "Bleep It!",
+  "description": "Removes offensive words from webpages and replaces them with symbols or random words.",
+  "version": "1.2",
+  "options_page": "options.html",
+  "permissions": [
+    "contextMenus",
+    "tabs",
+    "<all_urls>",
+    "storage",
+    "notifications"
+  ],
+  "browser_action": {
+      "default_icon": "icon16.png"
+  },
+
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+
+  "background": {
+    "scripts": [
+        "background.js"
+      ]
+  },
+
+  "content_scripts": [
+      {
+      "matches": [
+          "http://*/*",
+          "https://*/*"
+          ],
+      "js": [
+          "jquery-1.10.2.min.js", 
+          "replaceText.js", 
+          "removeSwears.js",
+          "options.js"
+        ],
+      "run_at": "document_end"
+      }
+  ],
+  "web_accessible_resources": [
+    "badwords.txt",
+    "goodwords.txt",
+    "jquery-1.10.2.min.map"
+  ],
+  "manifest_version":2
+}
