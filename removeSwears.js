@@ -1,65 +1,85 @@
 var userKeys;
 var enableWordsResult;
+var temp_url;
+var temp_url2;
+var badWords = "";
+var goodWords = "";
+    
+//Function to replace inapproprate with silly words
+var filterWithWords = function () { 
+    for (var i = 0; i < goodWords.length; i++) {
+        var randomNum = Math.floor(Math.random() * goodWords.length + 1);
+        var regex = new RegExp('\\b' + goodWords[i] + '\\b', 'gi');
+        $("body *").replaceText(regex, goodWords[randomNum]);
+    }   
+};
 
-//      Get all storage keys for extension
-chrome.storage.sync.get('userAddedWords', function(userWords) {
-    userKeys = userWords.userAddedWords;
-});
+//Function to replace inapproprate with symbols
+var filterWithSymbols = function () {
+    for (var i = 0; i < badWords.length; i++) {
+        var regex = new RegExp('\\b' + badWords[i] + '\\b', 'gi');
+        $("body *").replaceText(regex, "#@$!%");
+    }
+};
 
-//     Grab the options setting
-chrome.storage.sync.get('enableWords', function(items) {
-    enableWordsResult = items.enableWords;
-});
-
-//      Replace Text
-$(document).ready(function () {
-    var temp_url = chrome.extension.getURL("badwords.txt");
-    var temp_url2 = chrome.extension.getURL("goodwords.txt");
+//Get good and bad words
+var prepare = function () {
+//Get the bad words
     $.ajax({
         url: temp_url,
         success: function (result) {
-            var badWords = result.split(",");
-
-            $.ajax({
-                url: temp_url2,
-                success: function (result) {
-                    var goodWords = result.split(",");
-
-                    //      Remove words based on stock dictionary
-                    if(enableWordsResult == 'True') {
-                        for (var i = 0; i < badWords.length; i++) {
-                            var randomNum = Math.floor(Math.random() * goodWords.length + 1);
-                            var regex = new RegExp('\\b' + badWords[i] + '\\b', 'gi');
-
-                            $("body *").replaceText(regex, goodWords[randomNum]);
-                        }
-                    } else {
-                        for (var i = 0; i < badWords.length; i++) {
-                            var regex = new RegExp('\\b' + badWords[i] + '\\b', 'gi');
-
-                            $("body *").replaceText(regex, "#@$!%");
-                        }
+            badWords = result.split(",");
+            if (userKeys != null) {
+                if (Array.isArray(userKeys)) {
+                    for (var i = 0; i < userKeys.length; i++){
+                        badWords.push(userKeys[i]);
                     }
-
-                    //      Remove words based on user dictionary
-                    if(userKeys !== null) {
-                        if(enableWordsResult == 'True') {
-                            for (var j = 0; j < userKeys.length; j++) {
-                                var randomNum = Math.floor(Math.random() * goodWords.length + 1);
-                                var regex = new RegExp('\\b' + userKeys[j] + '\\b', 'gi');
-
-                                $("body *").replaceText(regex, goodWords[randomNum]);
-                            }
-                        } else {
-                            for (var j = 0; j < userKeys.length; j++) {
-                                var regex = new RegExp('\\b' + userKeys[j] + '\\b', 'gi');
-
-                                $("body *").replaceText(regex, "#@$!%");
-                            }
-                        }
-                    }
-                }
-            })
-        }
+                } else {
+                    badWords.push(userKeys);
+                }   
+            }
+        },
+        async: false
     });
+
+    //Get the good words
+    $.ajax({
+        url: temp_url2,
+        success: function (result) {
+            goodWords = result.split(",");   
+        },
+        async: false
+    });
+
+    //Call method which does the magic
+    if (enableWordsResult == 'True') {
+        filterWithWords();
+    } else {
+        filterWithSymbols();
+    }
+};
+
+//Get all storage keys for extension
+var getUserWords = function () {
+    chrome.storage.sync.get('userAddedWords', function (userWords) {
+        userKeys = userWords.userAddedWords;
+        prepare();
+    });
+};
+
+//Grab the options setting
+var getOptions = function () {
+    chrome.storage.sync.get('enableWords', function (items) {
+        enableWordsResult = items.enableWords;
+        getUserWords();
+    })
+};
+
+//Get dictionaries
+$(document).ready(function () {
+    //Prepare the urls to get good / bad words
+    temp_url = chrome.extension.getURL("badwords.txt");
+    temp_url2 = chrome.extension.getURL("goodwords.txt");
+  
+    getOptions();
 });
