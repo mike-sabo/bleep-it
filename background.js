@@ -1,16 +1,30 @@
-//If first launch, set option to False.
-chrome.storage.sync.get('enableWords', function (items) {
-    var enableWordsResult = items.enableWords;
+var opt = {
+    type: "basic",
+    title: "Bleep It!",
+    message: "Your word has been successfully added!",
+    iconUrl: "toast.png"
+};
 
-    if (typeof enableWordsResult === 'undefined') {
-        chrome.storage.sync.set({
-            'enableWords': 'False'
-        }, function () {});
+var settings = {
+    useBuiltInDict: false,
+    useSillyWords: false,
+    revealUserWords: false
+};
+
+var menu = chrome.contextMenus.create({
+    "title": "Bleep Word!",
+    "contexts": ["selection"],
+    "onclick": bleepWord
+});
+
+
+chrome.storage.sync.get('bleepSettings', function (items) {
+    if (items) {
+        var settings = JSON.parse(items);
     }
 });
 
-//Bleep Word - this will add highlighted word to sync storage
-var bleepWord = function (info) {
+function bleepWord(info) {
     //chrome.storage.sync.clear();
     
     chrome.storage.sync.get('userAddedWords', function (userWords) {
@@ -30,17 +44,9 @@ var bleepWord = function (info) {
     });
 };
 
-//Notification options
-var opt = {
-    type: "basic",
-    title: "Bleep It!",
-    message: "Your word has been successfully added!",
-    iconUrl: "toast.png"
-};
-
-//Creates right-click menu item
-var menu = chrome.contextMenus.create({
-    "title": "Bleep Word!",
-    "contexts": ["selection"],
-    "onclick": bleepWord
-});
+function createDefaultSettings() {
+     chrome.storage.sync.set({'bleepSettings': theValue}, function() {
+          // Notify that we saved.
+          message('Settings saved');
+        });
+}
