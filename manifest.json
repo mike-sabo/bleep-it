@@ -39,8 +39,8 @@
     }
   ],
   "web_accessible_resources": [
-    "badwords.txt",
-    "goodwords.txt"
+    "bleeped_words.txt",
+    "silly_words.txt"
   ],
   "manifest_version": 2
 }

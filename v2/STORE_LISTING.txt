@@ -1,0 +1,50 @@
+Bleep It! — Chrome Web Store Listing
+=====================================
+
+SHORT DESCRIPTION (132 chars max):
+Automatically censors offensive language on any webpage. Blur, replace with symbols, or swap in silly words. Perfect for families.
+
+─────────────────────────────────────
+
+DETAILED DESCRIPTION:
+
+Bleep It! scans every webpage you visit and instantly censors profanity, slurs, and other offensive language — keeping your browsing experience clean and family-friendly.
+
+━━━ HOW IT WORKS ━━━
+
+Once installed, Bleep It! runs silently in the background. It detects offensive words in page text and applies your chosen censoring method:
+
+• Blur Mode — Words are visually blurred out. Hover to get a hint, or right-click to temporarily reveal.
+• Symbol Mode — Offensive words are replaced with #@$!% characters.
+• Silly Words Mode — Swap profanity with random harmless words like "flurple" or "snickafribble" for a lighter experience.
+
+━━━ KEY FEATURES ━━━
+
+✓ Works on dynamic content — Handles infinite scroll, pagination, and single-page apps. New content is censored the moment it loads.
+✓ Custom word list — Add your own words to censor via right-click or the options page. Your list syncs across all your devices via your Google account.
+✓ Right-click reveal — Need to see what was censored? Right-click any blurred word to temporarily reveal it for a few seconds.
+✓ Right-click remove — Accidentally bleeped a word? Right-click and remove it from your custom list instantly.
+✓ Three censoring modes — Choose between blur, symbols, or silly word replacement.
+✓ Lightweight & fast — No jQuery, no heavy frameworks. Built with modern browser APIs for minimal performance impact.
+✓ Privacy-first — All processing happens locally in your browser. No data is sent to external servers.
+
+━━━ IDEAL FOR ━━━
+
+• Parents who want a cleaner browsing experience for their children
+• Anyone who prefers not to see profanity while reading articles, social media, or forums
+• Workplaces and shared computers
+
+━━━ HOW TO ADD CUSTOM WORDS ━━━
+
+1. Highlight any word on a webpage
+2. Right-click and select "Bleep this word!"
+3. The word is now censored on every page you visit
+
+You can also manage your custom dictionary from the extension's options page — add, review, or remove words at any time.
+
+━━━ SUPPORT ━━━
+
+Found a bug or have a suggestion? Please leave a review or submit feedback — I actively maintain this extension and appreciate all constructive input.
+
+Thank you for using Bleep It!
+— Michael Sabo

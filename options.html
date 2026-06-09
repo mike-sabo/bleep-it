@@ -15,16 +15,12 @@
       font-size: 25px;
       padding: 25px;
     }
-    
-    #userAddedWords {
-      width: 100%;
-    }
-    
+
     #donate {
       display: block;
       margin: 0 auto;
     }
-    
+
     #body {
       margin-top: 100px;
       margin-bottom: 75px;
@@ -37,7 +33,6 @@
 </head>
 
 <body>
-
   <nav class="navbar navbar-inverse navbar-fixed-top">
     <div class="container-fluid">
       <div id="title" class="text-center">bleep it!</div>
@@ -50,8 +45,8 @@
         <fieldset>
           <legend>Settings</legend>
           <p>
-            <input type="checkbox" name="chkPredefined"> Use predefined bleeped words dictionary (English only).<br>
-            <input type="checkbox" name="chkSilly"> Replace bleeped words with random silly words.<br>
+            <input type="checkbox" name="chkSilly"> Replace bleeped words with random silly words.
+            <br>
           </p>
           <br>
           <p>
@@ -60,8 +55,19 @@
               words you want in your custom dictionary, and click "Update User Defined Words!". This will update your custom
               dictionary and filter the words the next time you load a webpage. In order for this to work properly, each
               word as to be on a line of its own.</p>
-            <input type="checkbox" name="chkSilly"> Show user added words.<br>
-            <textarea rows="16" cols="50" id="userAddedWords"></textarea>
+            <p>
+              <input type="checkbox" name="userWords"> Show user added words.
+              <br>
+            </p>
+            <p>
+              <input type="text" id="new-word" placeholder="Add Word">
+              <button id="add-word">Add</button>
+            </p>
+
+            <p>
+              <ul id="user-list" class="list-group"></ul>
+            </p>
+            <!-- <textarea rows="16" cols="50" id="userAddedWords"></textarea> -->
           </p>
           <p>
 
@@ -77,7 +83,7 @@
     <div class="container">
       <p class="text-muted text-center">If you wish to support this project financially, please feel free to donate. Otherwise, enjoy it and I hope you can
         get use out of it!</p>
-        <br>
+      <br>
       <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="_top">
         <input type="hidden" name="cmd" value="_s-xclick">
         <input type="hidden" name="encrypted" value="-----BEGIN PKCS7-----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-----END PKCS7-----">
@@ -89,6 +95,7 @@
   </footer>
 
   <script type="text/javascript" src="options.js"></script>
+  <script type="text/javascript" src="list.min.js"></script>
 </body>
 
 </html>
