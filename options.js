@@ -1,98 +1,101 @@
-var userList = document.getElementById('user-list');
-var updatedUserList = [];
-var restore_options = function () {
-    var enableWordResult = false;
-    
-    registerListeners();
-    getUserList();
-};
+"use strict";
 
-//Get userList from chrome sync storage
-var getUserList = function () {
-    chrome.storage.sync.get('userAddedWords', function (items) {
-        if (items.userAddedWords != null) {
-            createUserList(items.userAddedWords);
-        }
-    });
-};
+// Bleep It! Options Page
 
-var createUserList = function (words) {
-    if (words != null) {
-        words.forEach(function (word) {
-            addWordToList(word);
-        }, this);
-    }
-};
+const enabledToggle = document.getElementById("enabled-toggle");
+const modeOptions = document.querySelectorAll(".mode-option");
+const newWordInput = document.getElementById("new-word");
+const addWordBtn = document.getElementById("add-word-btn");
+const wordListEl = document.getElementById("word-list");
+const statusMsg = document.getElementById("status-msg");
 
-var duplicate = function (word) {
-    
-};
+let userWords = [];
 
-var addWordToList = function (word) {
-    if (word != null && word != '') {
+// Load settings from storage
+async function loadSettings() {
+    const result = await chrome.storage.sync.get(["enabled", "mode", "userAddedWords"]);
 
-        if (!updatedUserList.includes(word)) {
-            var node = document.createElement('li');
-            var textnode = document.createTextNode(word);
-            var span = document.createElement('span');
+    // Enabled toggle
+    enabledToggle.checked = result.enabled !== false;
 
-            span.className = ''
-            node.className = 'list-group-item';
-            node.appendChild(textnode);
-            userList.appendChild(node);
-            saveUserList();
-        } else {
-            alert('Duplicate word detected!');
-        }
-    }
-};
-
-var updateUserList = function () {
-    var userListItems = userList.getElementsByTagName('li');
-  
-    if (userListItems.length > 0) {
-        updatedUserList = [];
-        for (var i = 0; i < userListItems.length; i++) {
-            updatedUserList.push(userListItems[i].innerText);
-        }
-    } else {
-        alert('It appears your word list is empty.');
-    }
-};
-
-
-var saveUserList = function () {
-    updateUserList();
-
-    chrome.storage.sync.set({
-        'userAddedWords': updatedUserList
-    }, function (items) {
-        chrome.notifications.create('', opt, function () {});
+    // Mode selection
+    const currentMode = result.mode || "blur";
+    modeOptions.forEach((opt) => {
+        opt.classList.toggle("active", opt.dataset.mode === currentMode);
     });
 
-    document.getElementById('new-word').value = '';
-};
+    // Word list
+    userWords = result.userAddedWords || [];
+    renderWordList();
+}
 
-//Change the value of the settings object
-var toggleCleanWord = function () {
-    var wordEnabled = document.getElementById('radioYes').checked;
-
-    if (wordEnabled == true) {
-        chrome.storage.sync.set({
-            'enableWords': 'True'
-        }, function () {});
-    } else {
-        chrome.storage.sync.set({
-            'enableWords': 'False'
-        }, function () {});
+function renderWordList() {
+    wordListEl.innerHTML = "";
+    if (userWords.length === 0) {
+        wordListEl.innerHTML = '<li class="empty-state">No custom words added yet.</li>';
+        return;
     }
-};
 
-var registerListeners = function () {
-    document.getElementById("add-word").addEventListener("click", function () {
-        var newWord = document.getElementById('new-word').value;
-        addWordToList(newWord);
+    for (const word of userWords) {
+        const li = document.createElement("li");
+        li.textContent = word;
+
+        const removeBtn = document.createElement("button");
+        removeBtn.className = "remove-btn";
+        removeBtn.textContent = "×";
+        removeBtn.title = "Remove word";
+        removeBtn.addEventListener("click", () => removeWord(word));
+
+        li.appendChild(removeBtn);
+        wordListEl.appendChild(li);
+    }
+}
+
+function showStatus(msg) {
+    statusMsg.textContent = msg;
+    setTimeout(() => { statusMsg.textContent = ""; }, 2000);
+}
+
+function addWord() {
+    const word = newWordInput.value.trim().toLowerCase();
+    if (!word) return;
+
+    if (userWords.includes(word)) {
+        showStatus("Word already in list!");
+        return;
+    }
+
+    userWords.push(word);
+    chrome.storage.sync.set({ userAddedWords: userWords });
+    renderWordList();
+    newWordInput.value = "";
+    showStatus("Word added!");
+}
+
+function removeWord(word) {
+    userWords = userWords.filter((w) => w !== word);
+    chrome.storage.sync.set({ userAddedWords: userWords });
+    renderWordList();
+    showStatus("Word removed.");
+}
+
+// Event listeners
+enabledToggle.addEventListener("change", () => {
+    chrome.storage.sync.set({ enabled: enabledToggle.checked });
+});
+
+modeOptions.forEach((opt) => {
+    opt.addEventListener("click", () => {
+        modeOptions.forEach((o) => o.classList.remove("active"));
+        opt.classList.add("active");
+        chrome.storage.sync.set({ mode: opt.dataset.mode });
     });
-};
+});
 
-document.addEventListener('DOMContentLoaded', restore_options);
+addWordBtn.addEventListener("click", addWord);
+newWordInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addWord();
+});
+
+// Initialize
+loadSettings();

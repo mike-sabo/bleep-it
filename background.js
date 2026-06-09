@@ -1,52 +1,47 @@
-var opt = {
-    type: "basic",
-    title: "Bleep It!",
-    message: "Your word has been successfully added!",
-    iconUrl: "toast.png"
-};
+"use strict";
 
-var settings = {
-    useBuiltInDict: false,
-    useSillyWords: false,
-    revealUserWords: false
-};
+// Bleep It! Background Service Worker (Manifest V3)
 
-var menu = chrome.contextMenus.create({
-    "title": "Bleep Word!",
-    "contexts": ["selection"],
-    "onclick": bleepWord
+// Set up context menu on install
+chrome.runtime.onInstalled.addListener(() => {
+    chrome.contextMenus.create({
+        id: "bleep-word",
+        title: "Bleep this word!",
+        contexts: ["selection"],
+    });
+
+    // Initialize default settings
+    chrome.storage.sync.get(["enabled", "mode"], (result) => {
+        if (result.enabled === undefined) {
+            chrome.storage.sync.set({ enabled: true, mode: "blur" });
+        }
+    });
 });
 
+// Handle context menu click — add selected word to user list
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId !== "bleep-word" || !info.selectionText) return;
 
-chrome.storage.sync.get('bleepSettings', function (items) {
-    if (items) {
-        var settings = JSON.parse(items);
+    const word = info.selectionText.trim().toLowerCase();
+    if (!word) return;
+
+    chrome.storage.sync.get("userAddedWords", (result) => {
+        const words = result.userAddedWords || [];
+
+        if (!words.includes(word)) {
+            words.push(word);
+            chrome.storage.sync.set({ userAddedWords: words });
+        }
+    });
+});
+
+// Handle messages from content script (e.g., remove word)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === "removeWord" && message.word) {
+        const word = message.word.trim().toLowerCase();
+        chrome.storage.sync.get("userAddedWords", (result) => {
+            const words = (result.userAddedWords || []).filter((w) => w !== word);
+            chrome.storage.sync.set({ userAddedWords: words });
+        });
     }
 });
-
-function bleepWord(info) {
-    //chrome.storage.sync.clear();
-    
-    chrome.storage.sync.get('userAddedWords', function (userWords) {
-
-        if(userWords.userAddedWords == null) {
-            chrome.storage.sync.set({'userAddedWords': info.selectionText}, function(){});
-        } else {
-            if (typeof userWords.userAddedWords === 'string') {
-                chrome.storage.sync.set({'userAddedWords': [userWords.userAddedWords, info.selectionText]});
-            } else {
-                userWords.userAddedWords.push(info.selectionText);
-                chrome.storage.sync.set({'userAddedWords': userWords.userAddedWords});   
-            }
-        }
-
-        chrome.notifications.create("", opt, function() {});
-    });
-};
-
-function createDefaultSettings() {
-     chrome.storage.sync.set({'bleepSettings': theValue}, function() {
-          // Notify that we saved.
-          message('Settings saved');
-        });
-}
