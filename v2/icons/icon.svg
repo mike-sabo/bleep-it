@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
     <!-- Black rounded rectangle background -->
     <rect width="128" height="128" rx="16" fill="#1a1a1a" />
-    <!-- "bl@#p" text -->
+    <!-- "bl**p" text -->
     <text x="118" y="88" text-anchor="end" font-family="Arial, sans-serif" font-weight="bold"
-        font-size="32" fill="white">bl@#p</text>
+        font-size="32" fill="white">bl**p</text>
     <!-- "it" text -->
     <text x="118" y="116" text-anchor="end" font-family="Arial, sans-serif" font-weight="bold"
         font-size="32" fill="white">it</text>
