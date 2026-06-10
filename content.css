@@ -33,6 +33,12 @@
   font-style: italic;
 }
 
+/* Hide mode — completely invisible */
+.bleep-it-censored[data-mode="hide"] {
+  filter: none;
+  display: none;
+}
+
 /* ─── Right-click context menu ─── */
 .bleep-it-context-menu {
   background: #fff;

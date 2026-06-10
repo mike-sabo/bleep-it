@@ -71,6 +71,8 @@
     // Get replacement content based on mode
     function getReplacementContent(matchedWord) {
         switch (mode) {
+            case "hide":
+                return ""; // Empty content, CSS hides it completely
             case "symbols":
                 return "#@$!%".repeat(Math.ceil(matchedWord.length / 5)).slice(0, matchedWord.length);
             case "silly":
@@ -103,6 +105,7 @@
             const span = document.createElement("span");
             span.className = BLEEPED_CLASS;
             span.setAttribute("aria-label", "censored");
+            span.setAttribute("data-mode", mode);
             span.textContent = getReplacementContent(match[0]);
             fragment.appendChild(span);
 
