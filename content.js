@@ -163,6 +163,16 @@
 
             if (!isEnabled) return;
 
+            // Clear previous processing markers and unwrap censored spans
+            document.querySelectorAll(`[${PROCESSED_ATTR}]`).forEach((el) => {
+                el.removeAttribute(PROCESSED_ATTR);
+            });
+            document.querySelectorAll(`.${BLEEPED_CLASS}`).forEach((el) => {
+                el.replaceWith(el.textContent);
+            });
+            // Normalize adjacent text nodes after unwrapping
+            document.body.normalize();
+
             // Load built-in bad words from bundled JSON
             const response = await fetch(chrome.runtime.getURL("words/bad_words.json"));
             const builtInWords = await response.json();
