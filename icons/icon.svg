@@ -2,9 +2,9 @@
     <!-- Black rounded rectangle background -->
     <rect width="128" height="128" rx="16" fill="#1a1a1a" />
     <!-- "bl**p" text -->
-    <text x="118" y="88" text-anchor="end" font-family="Arial, sans-serif" font-weight="bold"
+    <text x="118" y="82" text-anchor="end" font-family="Arial, sans-serif" font-weight="bold"
         font-size="32" fill="white">bl**p</text>
-    <!-- "it" text -->
-    <text x="118" y="116" text-anchor="end" font-family="Arial, sans-serif" font-weight="bold"
-        font-size="32" fill="white">it</text>
+    <!-- "it" text in blue -->
+    <text x="118" y="118" text-anchor="end" font-family="Arial, sans-serif" font-weight="bold"
+        font-size="32" fill="#4285f4">it</text>
 </svg>

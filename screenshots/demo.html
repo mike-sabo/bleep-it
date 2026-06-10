@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GameTalk - Daily Discussion</title>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --surface: #16213e;
+            --surface-hover: #1a2744;
+            --card: #0f3460;
+            --accent: #e94560;
+            --accent-light: #ff6b6b;
+            --text: #eaeaea;
+            --text-muted: #8892b0;
+            --border: #233554;
+            --upvote: #ff8c00;
+            --green: #4ecdc4;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .navbar .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+        .navbar .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 16px;
+        }
+        .navbar .search {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 8px 20px;
+            color: var(--text);
+            width: 320px;
+            font-size: 14px;
+            outline: none;
+        }
+        .navbar .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .navbar .nav-right .avatar {
+            width: 32px;
+            height: 32px;
+            background: var(--green);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--bg);
+        }
+        .navbar .nav-right .bell { font-size: 18px; cursor: pointer; }
+
+        .page {
+            display: flex;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+            gap: 24px;
+        }
+
+        .main { flex: 1; min-width: 0; }
+
+        .thread-header {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 16px;
+        }
+        .thread-header .subreddit {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .thread-header .subreddit .sub-icon {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .thread-header .subreddit span {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .thread-header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            color: #fff;
+        }
+        .thread-header .meta {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .thread-header .tags {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .thread-header .tag {
+            background: var(--card);
+            color: var(--green);
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 12px;
+        }
+
+        .post {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 10px;
+            display: flex;
+            gap: 14px;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .post:hover {
+            background: var(--surface-hover);
+            border-color: #2d4a6f;
+        }
+
+        .vote-col {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            padding-top: 2px;
+        }
+        .vote-col button {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 18px;
+            cursor: pointer;
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .vote-col button:first-child { color: var(--upvote); }
+        .vote-col .score {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .post-body { flex: 1; min-width: 0; }
+        .post-body .post-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .post-body .user-avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            color: #fff;
+        }
+        .post-body .username {
+            font-weight: 600;
+            color: var(--text);
+            font-size: 13px;
+        }
+        .post-body .time {
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+        .post-body .content {
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--text);
+        }
+        .post-body .actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 4px;
+        }
+        .post-body .actions span {
+            font-size: 12px;
+            color: var(--text-muted);
+            padding: 4px 10px;
+            border-radius: 16px;
+            cursor: pointer;
+        }
+        .post-body .actions span:hover {
+            background: var(--card);
+        }
+
+        .sidebar { width: 300px; flex-shrink: 0; }
+        .sidebar-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 12px;
+        }
+        .sidebar-card h3 {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: #fff;
+        }
+        .sidebar-card p {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+        .sidebar-card .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border);
+        }
+        .sidebar-card .stat-item { text-align: center; }
+        .sidebar-card .stat-item .num {
+            font-size: 18px;
+            font-weight: 700;
+            color: #fff;
+        }
+        .sidebar-card .stat-item .label {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .sidebar-card .rule {
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .sidebar-card .rule:last-child { border-bottom: none; }
+        .sidebar-card .rule-num {
+            background: var(--card);
+            color: var(--green);
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .censored-blur {
+            filter: blur(4px);
+            -webkit-filter: blur(4px);
+            cursor: pointer;
+            user-select: none;
+            padding: 1px 4px;
+            border-radius: 3px;
+            background: rgba(233, 69, 96, 0.15);
+        }
+        .censored-symbols {
+            color: var(--accent);
+            font-weight: 700;
+            padding: 1px 4px;
+            background: rgba(233, 69, 96, 0.1);
+            border-radius: 3px;
+        }
+        .censored-silly {
+            color: var(--green);
+            font-style: italic;
+            font-weight: 600;
+            padding: 1px 4px;
+            background: rgba(78, 205, 196, 0.1);
+            border-radius: 3px;
+        }
+
+        .bleep-badge {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .bleep-badge .dot {
+            width: 8px;
+            height: 8px;
+            background: var(--green);
+            border-radius: 50%;
+        }
+        .bleep-badge strong { color: var(--accent); }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">
+            <div class="logo-icon">G</div>
+            GameTalk
+        </div>
+        <input class="search" type="text" placeholder="Search communities...">
+        <div class="nav-right">
+            <span class="bell">🔔</span>
+            <div class="avatar">M</div>
+        </div>
+    </nav>
+
+    <div class="page">
+        <div class="main">
+            <div class="thread-header">
+                <div class="subreddit">
+                    <div class="sub-icon">🎮</div>
+                    <span>g/gaming</span>
+                </div>
+                <h1>Daily Discussion Thread — What are you playing?</h1>
+                <div class="meta">Posted by moderator • 3 hours ago • 847 comments</div>
+                <div class="tags">
+                    <span class="tag">Discussion</span>
+                    <span class="tag">Daily</span>
+                </div>
+            </div>
+
+            <div class="post">
+                <div class="vote-col">
+                    <button>▲</button>
+                    <span class="score">234</span>
+                    <button>▼</button>
+                </div>
+                <div class="post-body">
+                    <div class="post-header">
+                        <div class="user-avatar" style="background: #667eea;">M</div>
+                        <span class="username">gamer_mike92</span>
+                        <span class="time">• 2 hours ago</span>
+                    </div>
+                    <div class="content">
+                        Just played the new update and it's absolutely <span class="censored-blur">damn</span> amazing. The graphics are insane and the gameplay is smooth as <span class="censored-blur">hell</span>. Anyone else blown away by the new map? The devs really outdid themselves this time.
+                    </div>
+                    <div class="actions">
+                        <span>💬 18 replies</span>
+                        <span>⤴ Share</span>
+                        <span>⭐ Save</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="post">
+                <div class="vote-col">
+                    <button>▲</button>
+                    <span class="score">12</span>
+                    <button>▼</button>
+                </div>
+                <div class="post-body">
+                    <div class="post-header">
+                        <div class="user-avatar" style="background: #e94560;">T</div>
+                        <span class="username">toxic_player_xx</span>
+                        <span class="time">• 1 hour ago</span>
+                    </div>
+                    <div class="content">
+                        This game is <span class="censored-blur">shit</span>. The devs don't give a <span class="censored-blur">damn</span> about the community anymore. Every <span class="censored-blur">freaking</span> update breaks something new. I'm so <span class="censored-blur">pissed</span> off right now. Who even tests this <span class="censored-blur">crap</span> before release?
+                    </div>
+                    <div class="actions">
+                        <span>💬 45 replies</span>
+                        <span>⤴ Share</span>
+                        <span>⭐ Save</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="post">
+                <div class="vote-col">
+                    <button>▲</button>
+                    <span class="score">567</span>
+                    <button>▼</button>
+                </div>
+                <div class="post-body">
+                    <div class="post-header">
+                        <div class="user-avatar" style="background: #4ecdc4;">S</div>
+                        <span class="username">casual_sarah</span>
+                        <span class="time">• 45 min ago</span>
+                    </div>
+                    <div class="content">
+                        Can we please keep this thread civil? Not everyone wants to read through all the <span class="censored-blur">crap</span> and negativity. Some of us actually enjoy the game and want helpful discussion, not a <span class="censored-blur">damn</span> rant thread every single day.
+                    </div>
+                    <div class="actions">
+                        <span>💬 23 replies</span>
+                        <span>⤴ Share</span>
+                        <span>⭐ Save</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="post">
+                <div class="vote-col">
+                    <button>▲</button>
+                    <span class="score">89</span>
+                    <button>▼</button>
+                </div>
+                <div class="post-body">
+                    <div class="post-header">
+                        <div class="user-avatar" style="background: #ff8c00;">R</div>
+                        <span class="username">speedrunner101</span>
+                        <span class="time">• 30 min ago</span>
+                    </div>
+                    <div class="content">
+                        Found a new skip in level 3! You can clip through the wall near the checkpoint. Holy <span class="censored-blur">shit</span> this saves like 40 seconds on the run. The old route was <span class="censored-blur">ass</span> anyway. Video link in my profile for anyone interested.
+                    </div>
+                    <div class="actions">
+                        <span>💬 7 replies</span>
+                        <span>⤴ Share</span>
+                        <span>⭐ Save</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="post">
+                <div class="vote-col">
+                    <button>▲</button>
+                    <span class="score">45</span>
+                    <button>▼</button>
+                </div>
+                <div class="post-body">
+                    <div class="post-header">
+                        <div class="user-avatar" style="background: #a855f7;">N</div>
+                        <span class="username">newbie_2024</span>
+                        <span class="time">• 15 min ago</span>
+                    </div>
+                    <div class="content">
+                        Hey I'm new here! Just started playing yesterday and I'm having a <span class="censored-blur">hell</span> of a good time. Any tips for beginners? The tutorial was a bit <span class="censored-blur">crappy</span> and didn't explain the crafting system at all.
+                    </div>
+                    <div class="actions">
+                        <span>💬 31 replies</span>
+                        <span>⤴ Share</span>
+                        <span>⭐ Save</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="sidebar-card">
+                <h3>About g/gaming</h3>
+                <p>A community for gaming news, discussion, reviews, and memes. All platforms welcome — PC, console, and mobile.</p>
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="num">4.2M</div>
+                        <div class="label">Members</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="num">12.4K</div>
+                        <div class="label">Online</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="num">#3</div>
+                        <div class="label">Trending</div>
+                    </div>
+                </div>
+            </div>
+            <div class="sidebar-card">
+                <h3>Community Rules</h3>
+                <div class="rule"><span class="rule-num">1</span> No spam or self-promotion</div>
+                <div class="rule"><span class="rule-num">2</span> Be civil and respectful</div>
+                <div class="rule"><span class="rule-num">3</span> No NSFW content</div>
+                <div class="rule"><span class="rule-num">4</span> Use descriptive titles</div>
+                <div class="rule"><span class="rule-num">5</span> No spoilers without tags</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bleep-badge">
+        <div class="dot"></div>
+        <span><strong>Bleep It!</strong> is active — censoring 14 words</span>
+    </div>
+</body>
+</html>
