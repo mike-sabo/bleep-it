@@ -109,6 +109,53 @@
       font-weight: 600;
     }
 
+    /* Site row */
+    .site-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 12px;
+      background: #f7f7f7;
+      border-radius: 8px;
+      margin-bottom: 14px;
+    }
+
+    .site-row .site-info {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .site-row .site-host {
+      font-weight: 600;
+      font-size: 12px;
+      color: #1a1a1a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .site-row .site-desc {
+      font-size: 11px;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    .site-row .switch {
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .site-row .switch input:checked + .slider::before {
+      transform: translateX(16px);
+    }
+
+    .site-row .slider::before {
+      height: 14px;
+      width: 14px;
+    }
+
     /* Footer link */
     .footer {
       border-top: 1px solid #eee;
@@ -155,6 +202,17 @@
       <span class="icon">🤪</span>
       <span class="label">Silly</span>
     </button>
+  </div>
+
+  <div class="site-row" id="site-row" hidden>
+    <div class="site-info">
+      <div class="site-host" id="site-host"></div>
+      <div class="site-desc">Run Bleep It! on this site</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="site-toggle" checked>
+      <span class="slider"></span>
+    </label>
   </div>
 
   <div class="footer">

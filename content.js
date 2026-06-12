@@ -1,224 +1,407 @@
 "use strict";
 
 /**
- * Bleep It! Content Script
- * Scans text nodes for offensive words, wraps them in a span with a CSS class,
- * and observes DOM mutations to handle dynamically loaded content.
+ * Bleep It! Content Script — Overlay strategy
+ *
+ * Instead of mutating the page's DOM (which breaks React/Vue/Angular
+ * reconciliation on sites like Facebook), we render fixed-position overlay
+ * boxes on top of each matched word using Range.getClientRects().
+ *
+ * The page's own DOM is never modified — we only append a single overlay
+ * container to <html>, outside of any framework-owned subtree.
  */
 
 (() => {
-    const BLEEPED_CLASS = "bleep-it-censored";
-    const PROCESSED_ATTR = "data-bleep-processed";
+    const OVERLAY_CONTAINER_ID = "bleep-it-overlay-root";
+    const OVERLAY_CLASS = "bleep-it-overlay";
+    const MENU_CLASS = "bleep-it-context-menu";
+
+    const SKIP_TAGS = new Set([
+        "SCRIPT", "STYLE", "LINK", "META", "NOSCRIPT", "TEMPLATE",
+        "TEXTAREA", "INPUT", "SELECT", "OPTION", "CODE", "PRE",
+        "IFRAME", "OBJECT", "EMBED", "CANVAS", "AUDIO", "VIDEO",
+    ]);
+
+    // Skip very large text nodes (likely JSON / data blobs embedded in DOM).
+    const MAX_TEXT_LENGTH = 2000;
 
     let badWordsRegex = null;
     let sillyWords = [];
-    let mode = "blur"; // "blur" | "symbols" | "silly"
+    let mode = "blur";
     let isEnabled = true;
+    let isSiteDisabled = false;
 
-    // Build a single regex from all bad words for efficiency
+    let overlayRoot = null;
+    /** @type {{textNode: Text, start: number, end: number, word: string, els: HTMLElement[]}[]} */
+    let records = [];
+
+    let observer = null;
+    let scrollListener = null;
+    let resizeListener = null;
+    let repositionQueued = false;
+
+    // ─── Helpers ────────────────────────────────────────────────────────────
+
     function buildRegex(words) {
-        // Escape special regex chars, sort longest first for greedy match
         const escaped = words
             .map((w) => w.trim())
             .filter((w) => w.length > 0)
             .sort((a, b) => b.length - a.length)
             .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-
         if (escaped.length === 0) return null;
         return new RegExp(`\\b(${escaped.join("|")})\\b`, "gi");
     }
 
-    // Walk all text nodes under a root element
-    function getTextNodes(root) {
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-            acceptNode(node) {
-                // Skip script, style, textarea, input, and already-processed nodes
-                const parent = node.parentElement;
-                if (!parent) return NodeFilter.FILTER_REJECT;
-                const tag = parent.tagName;
-                if (
-                    tag === "SCRIPT" ||
-                    tag === "STYLE" ||
-                    tag === "TEXTAREA" ||
-                    tag === "INPUT" ||
-                    tag === "NOSCRIPT" ||
-                    tag === "CODE" ||
-                    tag === "PRE"
-                ) {
-                    return NodeFilter.FILTER_REJECT;
-                }
-                if (parent.classList.contains(BLEEPED_CLASS)) {
-                    return NodeFilter.FILTER_REJECT;
-                }
-                if (parent.hasAttribute(PROCESSED_ATTR)) {
-                    return NodeFilter.FILTER_REJECT;
-                }
-                // Only process nodes with actual content
-                if (node.nodeValue.trim().length === 0) {
-                    return NodeFilter.FILTER_REJECT;
-                }
-                return NodeFilter.FILTER_ACCEPT;
-            },
-        });
-
-        const nodes = [];
-        while (walker.nextNode()) {
-            nodes.push(walker.currentNode);
-        }
-        return nodes;
+    function isSkippableElement(el) {
+        if (!el) return true;
+        if (SKIP_TAGS.has(el.tagName)) return true;
+        if (el.namespaceURI && el.namespaceURI !== "http://www.w3.org/1999/xhtml") return true;
+        if (el.isContentEditable) return true;
+        if (el.id === OVERLAY_CONTAINER_ID) return true;
+        const role = el.getAttribute && el.getAttribute("role");
+        if (role === "textbox" || role === "searchbox" || role === "combobox") return true;
+        return false;
     }
 
-    // Get replacement content based on mode
-    function getReplacementContent(matchedWord) {
+    function hasSkippableAncestor(node) {
+        let el = node.parentElement;
+        while (el) {
+            if (isSkippableElement(el)) return true;
+            el = el.parentElement;
+        }
+        return false;
+    }
+
+    function shouldScanTextNode(node) {
+        if (!node || node.nodeType !== Node.TEXT_NODE) return false;
+        const text = node.nodeValue;
+        if (!text || !text.trim()) return false;
+        if (text.length > MAX_TEXT_LENGTH) return false;
+        const parent = node.parentElement;
+        if (!parent) return false;
+        if (isSkippableElement(parent)) return false;
+        if (hasSkippableAncestor(node)) return false;
+        return true;
+    }
+
+    function getReplacementContent(word) {
         switch (mode) {
             case "hide":
-                return ""; // Empty content, CSS hides it completely
+                return "";
             case "symbols":
-                return "#@$!%".repeat(Math.ceil(matchedWord.length / 5)).slice(0, matchedWord.length);
+                return "#@$!%".repeat(Math.ceil(word.length / 5)).slice(0, word.length);
             case "silly":
                 return sillyWords[Math.floor(Math.random() * sillyWords.length)] || "****";
             case "blur":
             default:
-                return matchedWord; // Keep original text, CSS handles the blur
+                return "";
         }
     }
 
-    // Process a single text node — split it and wrap matched words
-    function processTextNode(textNode) {
-        const text = textNode.nodeValue;
-        if (!badWordsRegex || !badWordsRegex.test(text)) return;
+    // Walk up the tree to find the first ancestor with a non-transparent
+    // background, so opaque overlays blend with the surrounding page.
+    function getEffectiveBackground(el) {
+        let cur = el;
+        while (cur && cur !== document.documentElement) {
+            const cs = getComputedStyle(cur);
+            const bg = cs.backgroundColor;
+            if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") return bg;
+            cur = cur.parentElement;
+        }
+        const bodyBg = getComputedStyle(document.body).backgroundColor;
+        if (bodyBg && bodyBg !== "rgba(0, 0, 0, 0)" && bodyBg !== "transparent") return bodyBg;
+        return "#fff";
+    }
 
-        // Reset regex lastIndex since we use .test() above
-        badWordsRegex.lastIndex = 0;
+    // ─── Overlay element management ─────────────────────────────────────────
 
-        const fragment = document.createDocumentFragment();
-        let lastIndex = 0;
-        let match;
+    function ensureOverlayRoot() {
+        if (overlayRoot && overlayRoot.isConnected) return overlayRoot;
+        overlayRoot = document.createElement("div");
+        overlayRoot.id = OVERLAY_CONTAINER_ID;
+        // Container itself doesn't catch events; only the overlay tiles inside it do.
+        overlayRoot.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 0;
+            pointer-events: none;
+            z-index: 2147483646;
+        `;
+        document.documentElement.appendChild(overlayRoot);
+        return overlayRoot;
+    }
 
-        while ((match = badWordsRegex.exec(text)) !== null) {
-            // Add text before the match
-            if (match.index > lastIndex) {
-                fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+    function styleOverlayEl(el, rect, parentEl, word, rectIndex) {
+        el.style.left = rect.left + "px";
+        el.style.top = rect.top + "px";
+        el.style.width = rect.width + "px";
+        el.style.height = rect.height + "px";
+
+        if (mode === "blur") {
+            el.style.backdropFilter = "blur(6px)";
+            el.style.webkitBackdropFilter = "blur(6px)";
+            el.style.backgroundColor = "rgba(0,0,0,0.05)";
+            el.style.color = "";
+            el.style.font = "";
+            el.textContent = "";
+        } else {
+            el.style.backdropFilter = "";
+            el.style.webkitBackdropFilter = "";
+            const cs = getComputedStyle(parentEl);
+            el.style.backgroundColor = getEffectiveBackground(parentEl);
+            el.style.color = cs.color;
+            el.style.font = cs.font;
+            el.style.fontWeight = cs.fontWeight;
+            // For multi-rect words (wrapped across lines) only the first rect
+            // shows replacement text; the rest are opaque blockers.
+            el.textContent = rectIndex === 0 ? getReplacementContent(word) : "";
+        }
+    }
+
+    function createOverlayEl(rect, parentEl, word, rectIndex) {
+        const el = document.createElement("div");
+        el.className = OVERLAY_CLASS;
+        el.dataset.word = word;
+        el.style.cssText = `
+            position: fixed;
+            pointer-events: auto;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            user-select: none;
+            border-radius: 2px;
+            line-height: 1;
+            white-space: nowrap;
+        `;
+        styleOverlayEl(el, rect, parentEl, word, rectIndex);
+        return el;
+    }
+
+    function positionRecord(rec) {
+        const node = rec.textNode;
+        if (!node.isConnected) return false;
+        // Verify the text hasn't changed under us.
+        const slice = node.nodeValue.slice(rec.start, rec.end);
+        if (slice.toLowerCase() !== rec.word.toLowerCase()) return false;
+
+        const range = document.createRange();
+        try {
+            range.setStart(node, rec.start);
+            range.setEnd(node, rec.end);
+        } catch {
+            return false;
+        }
+        const rects = Array.from(range.getClientRects())
+            .filter((r) => r.width > 0 && r.height > 0);
+
+        // Trim extra overlay elements.
+        while (rec.els.length > rects.length) {
+            rec.els.pop().remove();
+        }
+        const parent = node.parentElement;
+        if (!parent) return false;
+
+        for (let i = 0; i < rects.length; i++) {
+            const rect = rects[i];
+            let el = rec.els[i];
+            if (!el) {
+                el = createOverlayEl(rect, parent, rec.word, i);
+                ensureOverlayRoot().appendChild(el);
+                rec.els[i] = el;
+            } else {
+                styleOverlayEl(el, rect, parent, rec.word, i);
             }
-
-            // Create the censored span
-            const span = document.createElement("span");
-            span.className = BLEEPED_CLASS;
-            span.setAttribute("aria-label", "censored");
-            span.setAttribute("data-mode", mode);
-            span.textContent = getReplacementContent(match[0]);
-            fragment.appendChild(span);
-
-            lastIndex = badWordsRegex.lastIndex;
         }
+        return rects.length > 0;
+    }
 
-        // Add remaining text after last match
-        if (lastIndex < text.length) {
-            fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
-        }
-
-        // Replace the original text node
-        const parent = textNode.parentNode;
-        if (parent) {
-            parent.setAttribute(PROCESSED_ATTR, "");
-            parent.replaceChild(fragment, textNode);
+    function repositionAll() {
+        for (let i = records.length - 1; i >= 0; i--) {
+            const rec = records[i];
+            const node = rec.textNode;
+            if (!node.isConnected ||
+                node.nodeValue.length < rec.end ||
+                node.nodeValue.slice(rec.start, rec.end).toLowerCase() !== rec.word.toLowerCase()) {
+                for (const el of rec.els) el.remove();
+                records.splice(i, 1);
+                continue;
+            }
+            positionRecord(rec);
         }
     }
 
-    // Process all text nodes under a root
-    function processRoot(root) {
-        if (!isEnabled || !badWordsRegex) return;
-        const textNodes = getTextNodes(root);
-        for (const node of textNodes) {
-            processTextNode(node);
+    function scheduleReposition() {
+        if (repositionQueued) return;
+        repositionQueued = true;
+        requestAnimationFrame(() => {
+            repositionQueued = false;
+            repositionAll();
+        });
+    }
+
+    // ─── Scanning ───────────────────────────────────────────────────────────
+
+    function scanTextNode(node) {
+        if (!shouldScanTextNode(node)) return;
+        if (!badWordsRegex) return;
+        const text = node.nodeValue;
+        if (!badWordsRegex.test(text)) return;
+        badWordsRegex.lastIndex = 0;
+        let m;
+        while ((m = badWordsRegex.exec(text)) !== null) {
+            const rec = {
+                textNode: node,
+                start: m.index,
+                end: m.index + m[0].length,
+                word: m[0],
+                els: [],
+            };
+            records.push(rec);
+            positionRecord(rec);
         }
     }
 
-    // Tags that should never be processed (non-content elements)
-    const SKIP_TAGS = new Set([
-        "SCRIPT", "STYLE", "LINK", "META", "NOSCRIPT",
-        "TEXTAREA", "INPUT", "CODE", "PRE", "SVG",
-    ]);
+    function scanRoot(root) {
+        if (!root) return;
+        if (root.nodeType === Node.TEXT_NODE) {
+            scanTextNode(root);
+            return;
+        }
+        if (root.nodeType !== Node.ELEMENT_NODE) return;
+        if (isSkippableElement(root)) return;
 
-    // MutationObserver to handle dynamically added content
-    const observer = new MutationObserver((mutations) => {
-        if (!isEnabled || !badWordsRegex) return;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode(n) {
+                return shouldScanTextNode(n) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+            },
+        });
+        let n;
+        while ((n = walker.nextNode())) scanTextNode(n);
+    }
 
-        for (const mutation of mutations) {
-            for (const addedNode of mutation.addedNodes) {
-                if (addedNode.nodeType === Node.ELEMENT_NODE) {
-                    // Skip non-content elements entirely
-                    if (SKIP_TAGS.has(addedNode.tagName)) continue;
-                    // Skip our own censored spans
-                    if (addedNode.classList?.contains(BLEEPED_CLASS)) continue;
-                    if (addedNode.hasAttribute?.(PROCESSED_ATTR)) continue;
-                    processRoot(addedNode);
-                } else if (addedNode.nodeType === Node.TEXT_NODE) {
-                    // Skip text nodes inside non-content elements
-                    const parent = addedNode.parentElement;
-                    if (parent && SKIP_TAGS.has(parent.tagName)) continue;
-                    processTextNode(addedNode);
+    // Drop any records pointing at a given text node (used when it changes).
+    function dropRecordsForNode(node) {
+        for (let i = records.length - 1; i >= 0; i--) {
+            if (records[i].textNode === node) {
+                for (const el of records[i].els) el.remove();
+                records.splice(i, 1);
+            }
+        }
+    }
+
+    function clearAllOverlays() {
+        for (const rec of records) for (const el of rec.els) el.remove();
+        records = [];
+        if (overlayRoot && overlayRoot.isConnected) overlayRoot.remove();
+        overlayRoot = null;
+    }
+
+    // ─── MutationObserver ───────────────────────────────────────────────────
+
+    function makeObserver() {
+        return new MutationObserver((mutations) => {
+            if (!isEnabled || isSiteDisabled || !badWordsRegex) return;
+            let needsReposition = false;
+            for (const m of mutations) {
+                if (m.type === "childList") {
+                    for (const added of m.addedNodes) {
+                        if (added.nodeType === Node.ELEMENT_NODE &&
+                            added.id === OVERLAY_CONTAINER_ID) continue;
+                        scanRoot(added);
+                    }
+                    if (m.removedNodes.length > 0 || m.addedNodes.length > 0) {
+                        needsReposition = true;
+                    }
+                } else if (m.type === "characterData") {
+                    dropRecordsForNode(m.target);
+                    scanTextNode(m.target);
                 }
             }
-        }
-    });
+            if (needsReposition) scheduleReposition();
+        });
+    }
 
-    // Load settings and word lists, then start
+    // ─── Init / lifecycle ───────────────────────────────────────────────────
+
+    function siteMatches(pattern, host) {
+        pattern = (pattern || "").trim().toLowerCase();
+        if (!pattern) return false;
+        host = host.toLowerCase();
+        if (pattern.startsWith("*.")) {
+            const bare = pattern.slice(2);
+            return host === bare || host.endsWith("." + bare);
+        }
+        return host === pattern || host.endsWith("." + pattern);
+    }
+
+    function teardown() {
+        if (observer) observer.disconnect();
+        observer = null;
+        if (scrollListener) window.removeEventListener("scroll", scrollListener, true);
+        if (resizeListener) window.removeEventListener("resize", resizeListener);
+        scrollListener = null;
+        resizeListener = null;
+        clearAllOverlays();
+    }
+
     async function init() {
         try {
             const storage = await chrome.storage.sync.get([
                 "userAddedWords",
                 "mode",
                 "enabled",
+                "disabledSites",
             ]);
 
-            isEnabled = storage.enabled !== false; // default true
+            isEnabled = storage.enabled !== false;
             mode = storage.mode || "blur";
+            const disabled = Array.isArray(storage.disabledSites) ? storage.disabledSites : [];
+            isSiteDisabled = disabled.some((p) => siteMatches(p, location.hostname));
 
-            if (!isEnabled) return;
+            teardown();
+            if (!isEnabled || isSiteDisabled) return;
 
-            // Clear previous processing markers and unwrap censored spans
-            document.querySelectorAll(`[${PROCESSED_ATTR}]`).forEach((el) => {
-                el.removeAttribute(PROCESSED_ATTR);
-            });
-            document.querySelectorAll(`.${BLEEPED_CLASS}`).forEach((el) => {
-                el.replaceWith(el.textContent);
-            });
-            // Normalize adjacent text nodes after unwrapping
-            document.body.normalize();
-
-            // Load built-in bad words from bundled JSON
             const response = await fetch(chrome.runtime.getURL("words/bad_words.json"));
-            const builtInWords = await response.json();
+            const builtIn = await response.json();
+            const user = storage.userAddedWords || [];
+            badWordsRegex = buildRegex([...builtIn, ...user]);
+            if (!badWordsRegex) return;
 
-            // Merge user words
-            const userWords = storage.userAddedWords || [];
-            const allBadWords = [...builtInWords, ...userWords];
-
-            badWordsRegex = buildRegex(allBadWords);
-
-            // Load silly words if needed
             if (mode === "silly") {
-                const sillyResponse = await fetch(chrome.runtime.getURL("words/silly_words.json"));
-                sillyWords = await sillyResponse.json();
+                const r = await fetch(chrome.runtime.getURL("words/silly_words.json"));
+                sillyWords = await r.json();
             }
 
-            // Process existing page content
-            processRoot(document.body);
+            if (!document.body) return;
 
-            // Observe for dynamic content
+            ensureOverlayRoot();
+            scanRoot(document.body);
+
+            observer = makeObserver();
             observer.observe(document.body, {
                 childList: true,
                 subtree: true,
+                characterData: true,
             });
+
+            scrollListener = () => scheduleReposition();
+            resizeListener = () => scheduleReposition();
+            window.addEventListener("scroll", scrollListener, true);
+            window.addEventListener("resize", resizeListener);
+
+            if (document.fonts && document.fonts.ready) {
+                document.fonts.ready.then(scheduleReposition);
+            }
         } catch (err) {
             console.error("[Bleep It!] Initialization error:", err);
         }
     }
 
-    // ─── Right-click context menu on censored words ───────────────────────
-    const MENU_CLASS = "bleep-it-context-menu";
-    const REVEALED_CLASS = "bleep-it-revealed";
+    // ─── Right-click context menu on overlay tiles ──────────────────────────
     let activeMenu = null;
 
     function removeContextMenu() {
@@ -228,35 +411,27 @@
         }
     }
 
-    function revealWord(span) {
-        span.classList.add(REVEALED_CLASS);
+    function revealWordEverywhere(word) {
+        const target = word.toLowerCase();
+        const matching = records.filter((r) => r.word.toLowerCase() === target);
+        for (const rec of matching) for (const el of rec.els) el.style.visibility = "hidden";
         setTimeout(() => {
-            span.classList.remove(REVEALED_CLASS);
+            for (const rec of matching) {
+                for (const el of rec.els) if (el.isConnected) el.style.visibility = "";
+            }
         }, 4000);
     }
 
-    function removeWordFromList(span) {
-        const word = span.textContent.trim().toLowerCase();
-        // Send message to background to remove from user words
-        chrome.runtime.sendMessage({ action: "removeWord", word });
-        // Uncensor this word on the page immediately
-        document.querySelectorAll(`.${BLEEPED_CLASS}`).forEach((el) => {
-            if (el.textContent.trim().toLowerCase() === word) {
-                el.replaceWith(el.textContent);
-            }
-        });
-    }
-
-    // Show custom context menu on right-click of censored spans
     document.addEventListener("contextmenu", (e) => {
-        const target = e.target.closest(`.${BLEEPED_CLASS}`);
+        const target = e.target.closest?.(`.${OVERLAY_CLASS}`);
         if (!target) {
             removeContextMenu();
             return;
         }
-
         e.preventDefault();
         removeContextMenu();
+
+        const word = target.dataset.word || "";
 
         const menu = document.createElement("div");
         menu.className = MENU_CLASS;
@@ -271,7 +446,7 @@
         revealBtn.textContent = "👁 Reveal word (4s)";
         revealBtn.className = "bleep-it-menu-item";
         revealBtn.addEventListener("click", () => {
-            revealWord(target);
+            revealWordEverywhere(word);
             removeContextMenu();
         });
 
@@ -279,42 +454,46 @@
         removeBtn.textContent = "✕ Remove from bleeped words";
         removeBtn.className = "bleep-it-menu-item";
         removeBtn.addEventListener("click", () => {
-            removeWordFromList(target);
+            chrome.runtime.sendMessage({ action: "removeWord", word: word.toLowerCase() });
             removeContextMenu();
         });
 
-        menu.appendChild(revealBtn);
-        menu.appendChild(removeBtn);
-        document.body.appendChild(menu);
+        const disableSiteBtn = document.createElement("button");
+        disableSiteBtn.textContent = `⊘ Disable on ${location.hostname}`;
+        disableSiteBtn.className = "bleep-it-menu-item";
+        disableSiteBtn.addEventListener("click", async () => {
+            const { disabledSites = [] } = await chrome.storage.sync.get("disabledSites");
+            const list = Array.isArray(disabledSites) ? [...disabledSites] : [];
+            if (!list.includes(location.hostname)) {
+                list.push(location.hostname);
+                await chrome.storage.sync.set({ disabledSites: list });
+            }
+            removeContextMenu();
+        });
+
+        menu.append(revealBtn, removeBtn, disableSiteBtn);
+        document.documentElement.appendChild(menu);
         activeMenu = menu;
     });
 
-    // Dismiss menu on click elsewhere
     document.addEventListener("click", (e) => {
-        if (activeMenu && !activeMenu.contains(e.target)) {
-            removeContextMenu();
-        }
+        if (activeMenu && !activeMenu.contains(e.target)) removeContextMenu();
     });
-
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") removeContextMenu();
     });
 
     // ─── Settings change listener ───────────────────────────────────────────
     chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === "sync") {
-            observer.disconnect();
-            if (changes.enabled?.newValue === false) {
-                isEnabled = false;
-                document.querySelectorAll(`.${BLEEPED_CLASS}`).forEach((el) => {
-                    el.replaceWith(el.textContent);
-                });
-            } else {
-                init();
-            }
-        }
+        if (area !== "sync") return;
+        const relevant = ["enabled", "mode", "userAddedWords", "disabledSites"];
+        if (!relevant.some((k) => k in changes)) return;
+        init();
     });
 
-    // Start
-    init();
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init, { once: true });
+    } else {
+        init();
+    }
 })();

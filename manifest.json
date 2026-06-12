@@ -5,7 +5,8 @@
     "manifest_version": 3,
     "permissions": [
         "contextMenus",
-        "storage"
+        "storage",
+        "activeTab"
     ],
     "action": {
         "default_icon": {

@@ -289,6 +289,19 @@
   </div>
 
   <div class="card">
+    <h2>Disabled Sites</h2>
+    <p class="toggle-desc" style="margin-bottom: 12px;">Bleep It! won't run on these hostnames. Use <code>*.example.com</code> to match all subdomains. You can also right-click a censored word and choose "Disable on this site".</p>
+    <div class="word-input-row">
+      <input type="text" id="new-site" placeholder="e.g. facebook.com or *.example.com">
+      <button class="btn btn-primary" id="add-site-btn">Add</button>
+    </div>
+    <ul class="word-list" id="site-list">
+      <li class="empty-state">No sites disabled.</li>
+    </ul>
+    <div class="status-msg" id="site-status-msg"></div>
+  </div>
+
+  <div class="card">
     <h2>Tips</h2>
     <ul style="margin: 0; padding-left: 20px; color: #555; font-size: 13px; line-height: 1.8;">
       <li><strong>Add words:</strong> Highlight any word on a page → right-click → "Bleep this word!"</li>
