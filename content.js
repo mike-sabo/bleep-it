@@ -134,6 +134,12 @@
         }
     }
 
+    // Tags that should never be processed (non-content elements)
+    const SKIP_TAGS = new Set([
+        "SCRIPT", "STYLE", "LINK", "META", "NOSCRIPT",
+        "TEXTAREA", "INPUT", "CODE", "PRE", "SVG",
+    ]);
+
     // MutationObserver to handle dynamically added content
     const observer = new MutationObserver((mutations) => {
         if (!isEnabled || !badWordsRegex) return;
@@ -141,11 +147,16 @@
         for (const mutation of mutations) {
             for (const addedNode of mutation.addedNodes) {
                 if (addedNode.nodeType === Node.ELEMENT_NODE) {
+                    // Skip non-content elements entirely
+                    if (SKIP_TAGS.has(addedNode.tagName)) continue;
                     // Skip our own censored spans
                     if (addedNode.classList?.contains(BLEEPED_CLASS)) continue;
                     if (addedNode.hasAttribute?.(PROCESSED_ATTR)) continue;
                     processRoot(addedNode);
                 } else if (addedNode.nodeType === Node.TEXT_NODE) {
+                    // Skip text nodes inside non-content elements
+                    const parent = addedNode.parentElement;
+                    if (parent && SKIP_TAGS.has(parent.tagName)) continue;
                     processTextNode(addedNode);
                 }
             }
