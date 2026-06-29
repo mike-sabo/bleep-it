@@ -119,9 +119,10 @@
         if (overlayRoot && overlayRoot.isConnected) return overlayRoot;
         overlayRoot = document.createElement("div");
         overlayRoot.id = OVERLAY_CONTAINER_ID;
-        // Container itself doesn't catch events; only the overlay tiles inside it do.
+        // Anchored to the document (not the viewport) so tiles scroll with the
+        // page natively and don't briefly expose the underlying word on scroll.
         overlayRoot.style.cssText = `
-            position: fixed;
+            position: absolute;
             top: 0;
             left: 0;
             width: 0;
@@ -134,8 +135,10 @@
     }
 
     function styleOverlayEl(el, rect, parentEl, word, rectIndex) {
-        el.style.left = rect.left + "px";
-        el.style.top = rect.top + "px";
+        // rect is viewport-relative; convert to document coords so the absolutely
+        // positioned tile rides along with the page during window scroll.
+        el.style.left = (rect.left + window.scrollX) + "px";
+        el.style.top = (rect.top + window.scrollY) + "px";
         el.style.width = rect.width + "px";
         el.style.height = rect.height + "px";
 
@@ -165,7 +168,7 @@
         el.className = OVERLAY_CLASS;
         el.dataset.word = word;
         el.style.cssText = `
-            position: fixed;
+            position: absolute;
             pointer-events: auto;
             box-sizing: border-box;
             display: flex;
