@@ -1,20 +1,51 @@
 "use strict";
 
 /**
- * Bleep It! Content Script — Overlay strategy
+ * Bleep It! Content Script — CSS Custom Highlight API strategy
  *
- * Instead of mutating the page's DOM (which breaks React/Vue/Angular
- * reconciliation on sites like Facebook), we render fixed-position overlay
- * boxes on top of each matched word using Range.getClientRects().
+ * Primary mechanism: the browser's CSS Custom Highlight API
+ * (CSS.highlights + ::highlight()). Text ranges are styled at the
+ * browser's text-rendering layer, which gives us three big wins over
+ * positioned overlay tiles:
  *
- * The page's own DOM is never modified — we only append a single overlay
- * container to <html>, outside of any framework-owned subtree.
+ *   1. Highlights flow with the text natively — no scroll listeners, no
+ *      flicker exposing the underlying word as the page scrolls.
+ *   2. There is no DOM element on top of the page, so site chrome
+ *      (Gmail's sticky headers, sidebars, popovers) is never obscured
+ *      and z-index conflicts go away entirely.
+ *   3. The page's own DOM is never mutated, so frameworks like
+ *      React/Vue/Angular keep their virtual-DOM diffs intact.
+ *
+ * Fallback path: the `symbols` and `silly` modes need to *replace* the
+ * word with different text, which the Highlight API can't do. For those
+ * modes we render an overlay tile on top of the highlight. The
+ * highlight underneath guarantees the bad word stays censored even if
+ * the tile briefly lags during scroll, and the tile uses a low z-index
+ * so it doesn't fight with site chrome.
+ *
+ * If the browser somehow lacks the Highlight API, the script falls back
+ * to overlay-only rendering for every mode.
  */
 
 (() => {
     const OVERLAY_CONTAINER_ID = "bleep-it-overlay-root";
     const OVERLAY_CLASS = "bleep-it-overlay";
     const MENU_CLASS = "bleep-it-context-menu";
+
+    const HIGHLIGHT_NAMES = {
+        blur: "bleep-it-blur",
+        hide: "bleep-it-hide",
+        symbols: "bleep-it-symbols",
+        silly: "bleep-it-silly",
+    };
+
+    const HAS_HIGHLIGHTS =
+        typeof CSS !== "undefined" &&
+        CSS.highlights &&
+        typeof Highlight === "function" &&
+        typeof Range === "function";
+
+    const modeNeedsOverlay = (m) => m === "symbols" || m === "silly";
 
     const SKIP_TAGS = new Set([
         "SCRIPT", "STYLE", "LINK", "META", "NOSCRIPT", "TEMPLATE",
@@ -32,7 +63,9 @@
     let isSiteDisabled = false;
 
     let overlayRoot = null;
-    /** @type {{textNode: Text, start: number, end: number, word: string, els: HTMLElement[]}[]} */
+    let highlight = null;
+    let highlightName = null;
+    /** @type {{textNode: Text, start: number, end: number, word: string, range: Range|null, els: HTMLElement[]}[]} */
     let records = [];
 
     let observer = null;
@@ -86,13 +119,10 @@
 
     function getReplacementContent(word) {
         switch (mode) {
-            case "hide":
-                return "";
             case "symbols":
                 return "#@$!%".repeat(Math.ceil(word.length / 5)).slice(0, word.length);
             case "silly":
                 return sillyWords[Math.floor(Math.random() * sillyWords.length)] || "****";
-            case "blur":
             default:
                 return "";
         }
@@ -113,14 +143,54 @@
         return "#fff";
     }
 
-    // ─── Overlay element management ─────────────────────────────────────────
+    // ─── Highlight (CSS Custom Highlight API) management ────────────────────
+
+    function ensureHighlight() {
+        if (!HAS_HIGHLIGHTS) return null;
+        const desiredName = HIGHLIGHT_NAMES[mode] || HIGHLIGHT_NAMES.blur;
+        if (highlight && highlightName === desiredName) return highlight;
+        if (highlightName) CSS.highlights.delete(highlightName);
+        highlight = new Highlight();
+        highlightName = desiredName;
+        CSS.highlights.set(highlightName, highlight);
+        return highlight;
+    }
+
+    function clearHighlight() {
+        if (highlightName && HAS_HIGHLIGHTS) CSS.highlights.delete(highlightName);
+        highlight = null;
+        highlightName = null;
+    }
+
+    function addRangeToHighlight(node, start, end) {
+        const h = ensureHighlight();
+        if (!h) return null;
+        const range = new Range();
+        try {
+            range.setStart(node, start);
+            range.setEnd(node, end);
+        } catch {
+            return null;
+        }
+        h.add(range);
+        return range;
+    }
+
+    function removeRangeFromHighlight(range) {
+        if (highlight && range) highlight.delete(range);
+    }
+
+    // ─── Overlay element management (symbols / silly modes only) ───────────
 
     function ensureOverlayRoot() {
         if (overlayRoot && overlayRoot.isConnected) return overlayRoot;
         overlayRoot = document.createElement("div");
         overlayRoot.id = OVERLAY_CONTAINER_ID;
-        // Anchored to the document (not the viewport) so tiles scroll with the
-        // page natively and don't briefly expose the underlying word on scroll.
+        // Anchored to the document (not the viewport) so tiles scroll with
+        // the page natively. A modest z-index keeps tiles above inline
+        // content but below site chrome (Gmail headers, popovers, etc.) —
+        // the Highlight API underneath guarantees the bad word stays
+        // censored even if a tile is briefly covered.
         overlayRoot.style.cssText = `
             position: absolute;
             top: 0;
@@ -128,7 +198,7 @@
             width: 0;
             height: 0;
             pointer-events: none;
-            z-index: 2147483646;
+            z-index: 1;
         `;
         document.documentElement.appendChild(overlayRoot);
         return overlayRoot;
@@ -142,25 +212,14 @@
         el.style.width = rect.width + "px";
         el.style.height = rect.height + "px";
 
-        if (mode === "blur") {
-            el.style.backdropFilter = "blur(6px)";
-            el.style.webkitBackdropFilter = "blur(6px)";
-            el.style.backgroundColor = "rgba(0,0,0,0.05)";
-            el.style.color = "";
-            el.style.font = "";
-            el.textContent = "";
-        } else {
-            el.style.backdropFilter = "";
-            el.style.webkitBackdropFilter = "";
-            const cs = getComputedStyle(parentEl);
-            el.style.backgroundColor = getEffectiveBackground(parentEl);
-            el.style.color = cs.color;
-            el.style.font = cs.font;
-            el.style.fontWeight = cs.fontWeight;
-            // For multi-rect words (wrapped across lines) only the first rect
-            // shows replacement text; the rest are opaque blockers.
-            el.textContent = rectIndex === 0 ? getReplacementContent(word) : "";
-        }
+        const cs = getComputedStyle(parentEl);
+        el.style.backgroundColor = getEffectiveBackground(parentEl);
+        el.style.color = cs.color;
+        el.style.font = cs.font;
+        el.style.fontWeight = cs.fontWeight;
+        // For multi-rect words (wrapped across lines) only the first rect
+        // shows replacement text; the rest are opaque blockers.
+        el.textContent = rectIndex === 0 ? getReplacementContent(word) : "";
     }
 
     function createOverlayEl(rect, parentEl, word, rectIndex) {
@@ -184,27 +243,15 @@
         return el;
     }
 
-    function positionRecord(rec) {
+    function positionRecordOverlay(rec) {
         const node = rec.textNode;
         if (!node.isConnected) return false;
-        // Verify the text hasn't changed under us.
-        const slice = node.nodeValue.slice(rec.start, rec.end);
-        if (slice.toLowerCase() !== rec.word.toLowerCase()) return false;
-
-        const range = document.createRange();
-        try {
-            range.setStart(node, rec.start);
-            range.setEnd(node, rec.end);
-        } catch {
-            return false;
-        }
-        const rects = Array.from(range.getClientRects())
+        if (!rec.range) return false;
+        const rects = Array.from(rec.range.getClientRects())
             .filter((r) => r.width > 0 && r.height > 0);
 
         // Trim extra overlay elements.
-        while (rec.els.length > rects.length) {
-            rec.els.pop().remove();
-        }
+        while (rec.els.length > rects.length) rec.els.pop().remove();
         const parent = node.parentElement;
         if (!parent) return false;
 
@@ -222,18 +269,29 @@
         return rects.length > 0;
     }
 
+    function recordIsStale(rec) {
+        const node = rec.textNode;
+        if (!node.isConnected) return true;
+        const v = node.nodeValue;
+        if (!v || v.length < rec.end) return true;
+        return v.slice(rec.start, rec.end).toLowerCase() !== rec.word.toLowerCase();
+    }
+
+    function dropRecord(rec) {
+        for (const el of rec.els) el.remove();
+        removeRangeFromHighlight(rec.range);
+    }
+
     function repositionAll() {
+        const overlaysActive = modeNeedsOverlay(mode) || !HAS_HIGHLIGHTS;
         for (let i = records.length - 1; i >= 0; i--) {
             const rec = records[i];
-            const node = rec.textNode;
-            if (!node.isConnected ||
-                node.nodeValue.length < rec.end ||
-                node.nodeValue.slice(rec.start, rec.end).toLowerCase() !== rec.word.toLowerCase()) {
-                for (const el of rec.els) el.remove();
+            if (recordIsStale(rec)) {
+                dropRecord(rec);
                 records.splice(i, 1);
                 continue;
             }
-            positionRecord(rec);
+            if (overlaysActive) positionRecordOverlay(rec);
         }
     }
 
@@ -254,17 +312,29 @@
         const text = node.nodeValue;
         if (!badWordsRegex.test(text)) return;
         badWordsRegex.lastIndex = 0;
+        const overlaysActive = modeNeedsOverlay(mode) || !HAS_HIGHLIGHTS;
         let m;
         while ((m = badWordsRegex.exec(text)) !== null) {
+            const start = m.index;
+            const end = start + m[0].length;
+            let range = addRangeToHighlight(node, start, end);
+            if (!range && overlaysActive) {
+                // No Highlight API available; we still need a Range for
+                // getClientRects() when positioning the overlay.
+                range = new Range();
+                try { range.setStart(node, start); range.setEnd(node, end); }
+                catch { range = null; }
+            }
             const rec = {
                 textNode: node,
-                start: m.index,
-                end: m.index + m[0].length,
+                start,
+                end,
                 word: m[0],
+                range,
                 els: [],
             };
             records.push(rec);
-            positionRecord(rec);
+            if (overlaysActive) positionRecordOverlay(rec);
         }
     }
 
@@ -290,17 +360,27 @@
     function dropRecordsForNode(node) {
         for (let i = records.length - 1; i >= 0; i--) {
             if (records[i].textNode === node) {
-                for (const el of records[i].els) el.remove();
+                dropRecord(records[i]);
+                records.splice(i, 1);
+            }
+        }
+    }
+
+    function cleanupDetachedRecords() {
+        for (let i = records.length - 1; i >= 0; i--) {
+            if (!records[i].textNode.isConnected) {
+                dropRecord(records[i]);
                 records.splice(i, 1);
             }
         }
     }
 
     function clearAllOverlays() {
-        for (const rec of records) for (const el of rec.els) el.remove();
+        for (const rec of records) dropRecord(rec);
         records = [];
         if (overlayRoot && overlayRoot.isConnected) overlayRoot.remove();
         overlayRoot = null;
+        clearHighlight();
     }
 
     // ─── MutationObserver ───────────────────────────────────────────────────
@@ -308,6 +388,8 @@
     function makeObserver() {
         return new MutationObserver((mutations) => {
             if (!isEnabled || isSiteDisabled || !badWordsRegex) return;
+            const overlaysActive = modeNeedsOverlay(mode) || !HAS_HIGHLIGHTS;
+            let hadRemovals = false;
             let needsReposition = false;
             for (const m of mutations) {
                 if (m.type === "childList") {
@@ -316,6 +398,7 @@
                             added.id === OVERLAY_CONTAINER_ID) continue;
                         scanRoot(added);
                     }
+                    if (m.removedNodes.length > 0) hadRemovals = true;
                     if (m.removedNodes.length > 0 || m.addedNodes.length > 0) {
                         needsReposition = true;
                     }
@@ -324,7 +407,10 @@
                     scanTextNode(m.target);
                 }
             }
-            if (needsReposition) scheduleReposition();
+            // Removed subtrees can leave records pointing at detached nodes
+            // (and stale ranges sitting in the Highlight set). Sweep them.
+            if (hadRemovals) cleanupDetachedRecords();
+            if (needsReposition && overlaysActive) scheduleReposition();
         });
     }
 
@@ -381,7 +467,10 @@
 
             if (!document.body) return;
 
-            ensureOverlayRoot();
+            ensureHighlight();
+            const overlaysActive = modeNeedsOverlay(mode) || !HAS_HIGHLIGHTS;
+            if (overlaysActive) ensureOverlayRoot();
+
             scanRoot(document.body);
 
             observer = makeObserver();
@@ -391,20 +480,25 @@
                 characterData: true,
             });
 
-            scrollListener = () => scheduleReposition();
-            resizeListener = () => scheduleReposition();
-            window.addEventListener("scroll", scrollListener, true);
-            window.addEventListener("resize", resizeListener);
+            // Highlight-only modes (blur/hide) re-flow natively with the
+            // page text — no scroll/resize listeners needed. We only pay
+            // that cost when overlay tiles are actually being positioned.
+            if (overlaysActive) {
+                scrollListener = () => scheduleReposition();
+                resizeListener = () => scheduleReposition();
+                window.addEventListener("scroll", scrollListener, true);
+                window.addEventListener("resize", resizeListener);
 
-            if (document.fonts && document.fonts.ready) {
-                document.fonts.ready.then(scheduleReposition);
+                if (document.fonts && document.fonts.ready) {
+                    document.fonts.ready.then(scheduleReposition);
+                }
             }
         } catch (err) {
             console.error("[Bleep It!] Initialization error:", err);
         }
     }
 
-    // ─── Right-click context menu on overlay tiles ──────────────────────────
+    // ─── Right-click context menu on bleeped words ─────────────────────────
     let activeMenu = null;
 
     function removeContextMenu() {
@@ -414,27 +508,80 @@
         }
     }
 
+    function getCaretPos(x, y) {
+        if (document.caretRangeFromPoint) {
+            const r = document.caretRangeFromPoint(x, y);
+            if (!r) return null;
+            return { node: r.startContainer, offset: r.startOffset };
+        }
+        if (document.caretPositionFromPoint) {
+            const p = document.caretPositionFromPoint(x, y);
+            if (!p) return null;
+            return { node: p.offsetNode, offset: p.offset };
+        }
+        return null;
+    }
+
+    function findBleepedWordAt(x, y) {
+        const pos = getCaretPos(x, y);
+        if (!pos || !pos.node || pos.node.nodeType !== Node.TEXT_NODE) return null;
+        for (const rec of records) {
+            if (rec.textNode === pos.node &&
+                pos.offset >= rec.start &&
+                pos.offset <= rec.end) {
+                return rec.word;
+            }
+        }
+        return null;
+    }
+
     function revealWordEverywhere(word) {
         const target = word.toLowerCase();
         const matching = records.filter((r) => r.word.toLowerCase() === target);
+        // Temporarily hide overlay tiles (symbols / silly modes).
         for (const rec of matching) for (const el of rec.els) el.style.visibility = "hidden";
+        // Temporarily remove the matching ranges from the highlight set.
+        const restored = [];
+        if (highlight) {
+            for (const rec of matching) {
+                if (rec.range) {
+                    highlight.delete(rec.range);
+                    restored.push(rec);
+                }
+            }
+        }
         setTimeout(() => {
             for (const rec of matching) {
                 for (const el of rec.els) if (el.isConnected) el.style.visibility = "";
+            }
+            if (highlight) {
+                for (const rec of restored) {
+                    if (rec.textNode.isConnected && rec.range) {
+                        try { highlight.add(rec.range); } catch { /* range invalid */ }
+                    }
+                }
             }
         }, 4000);
     }
 
     document.addEventListener("contextmenu", (e) => {
-        const target = e.target.closest?.(`.${OVERLAY_CLASS}`);
-        if (!target) {
+        // First check if user right-clicked an overlay tile (symbols/silly).
+        let word = null;
+        const overlayTarget = e.target.closest?.(`.${OVERLAY_CLASS}`);
+        if (overlayTarget) {
+            word = overlayTarget.dataset.word || null;
+        } else {
+            // For highlight-only modes there's no element to click on, so
+            // resolve the caret position to find a bleeped range underneath.
+            word = findBleepedWordAt(e.clientX, e.clientY);
+        }
+
+        if (!word) {
             removeContextMenu();
             return;
         }
         e.preventDefault();
         removeContextMenu();
-
-        const word = target.dataset.word || "";
 
         const menu = document.createElement("div");
         menu.className = MENU_CLASS;

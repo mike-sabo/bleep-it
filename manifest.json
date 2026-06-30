@@ -1,7 +1,7 @@
 {
     "name": "Bleep It!",
     "description": "Automatically censors offensive language on any webpage. Blur, replace with symbols, or swap in silly words. Perfect for families.",
-    "version": "3.0.1",
+    "version": "3.1.0",
     "manifest_version": 3,
     "permissions": [
         "contextMenus",

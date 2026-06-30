@@ -1,5 +1,45 @@
-/* Bleep It! — Overlay tiles are styled inline by content.js.
- * This file only ships the right-click context menu styles. */
+/* Bleep It! — Styles for both rendering strategies.
+ *
+ *   1. CSS Custom Highlight API rules (::highlight) — used as the primary
+ *      censoring mechanism. These flow natively with the text during
+ *      scroll, so there is no overlay flicker and no z-index conflict
+ *      with site chrome.
+ *   2. Right-click context menu styles for the in-page menu.
+ *
+ * Overlay tiles (only used for `symbols` / `silly` modes that need to
+ * render replacement text) are styled inline by content.js.
+ */
+
+/* ── Highlight rules ─────────────────────────────────────────────────── */
+
+/* Blur: hide the actual glyphs and replace them with a soft blurred halo
+   using text-shadow. Works on both light and dark backgrounds because the
+   shadow color is mid-grey. */
+::highlight(bleep-it-blur) {
+  color: transparent;
+  background-color: rgba(127, 127, 127, 0.18);
+  text-shadow:
+    0 0 4px rgba(127, 127, 127, 1),
+    0 0 9px rgba(127, 127, 127, 0.85);
+}
+
+/* Hide: classic blackbox. The glyphs become invisible and a solid bar
+   takes their place. */
+::highlight(bleep-it-hide) {
+  color: transparent;
+  background-color: currentColor;
+}
+
+/* Symbols / silly: an opaque grey block sits under the overlay tile so
+   the original word can never peek through during scroll repositioning.
+   The visible content (#@$!% or the silly word) is drawn by the tile. */
+::highlight(bleep-it-symbols),
+::highlight(bleep-it-silly) {
+  color: transparent;
+  background-color: currentColor;
+}
+
+/* ── Right-click context menu ────────────────────────────────────────── */
 
 .bleep-it-context-menu {
   background: #fff;
